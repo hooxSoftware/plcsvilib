@@ -1,0 +1,16 @@
+-----------------------------------------------------------------------------
+VER_${projectName}.TXT - Description of the changes in module ${projectName}
+-----------------------------------------------------------------------------
+V1.00.01 Alpha
+
+Tested with:
+        MCore  V3.75
+        MSys   V3.75
+
+Changes compared to previous version:
+        - none
+
+Known problems:
+        - none
+
+-----------------------------------------------------------------------------

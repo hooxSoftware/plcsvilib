@@ -1,0 +1,24 @@
+Name=plcsvi
+
+Version Auto   
+
+(*
+ * add variable for updatelist
+ * AddVariable('RES', 'Time_us', ADR(u32Time));
+*)
+FUNCTION AddVariable : DINT
+VAR_INPUT
+    strModule   : STRING;
+    strVariable : STRING;
+    pData   	 : DINT;
+END_VAR    
+
+(*
+ * change time for update
+ * default = 100ms
+ * range 1 - 1000ms
+*)
+FUNCTION SetTaskTime : DINT
+VAR_INPUT
+    u32Time   : UDINT;    
+END_VAR    
