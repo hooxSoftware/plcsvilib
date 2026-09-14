@@ -26,7 +26,7 @@
 #include <math.h>
 #include <svi_e.h>
 #include <prof_e.h>
-
+#include <lst_e.h>
 /*
  **********************************************************************
  project includes
@@ -41,6 +41,7 @@ SINT32 s32TaskHandle;
 UINT32 u32TaskDelay;
 
 CHAR* pPlcName;
+LST_ID *LST_SVI;
 
 /***********************************
  * Test Registry
@@ -51,6 +52,7 @@ typedef struct plc_Variable
   SVI_FUNC *pLib;
   SVI_ADDR sAddr;
   void* pData;
+  UINT32 u32Data;
   UINT32 u32Format;
   BOOL bValid;
 
@@ -63,7 +65,7 @@ plc_Variable sTest;
  function definitions
  **********************************************************************
  */
-void PLCTEST_Main(void);
+void PLCSVI_Main(void);
 
 /**
  ********************************************************************************
@@ -78,7 +80,7 @@ void PLCTEST_Main(void);
  * @retval     Ok        : initialization is ok
  *
 *******************************************************************************/
-MLOCAL SINT32 PLCSVI_PlcDllPrepareEx_Impl(PLCPROJ *pProject, PLC_LIBINFO *pInfo, PLC_EXTLIBCONFIG *pConfig)
+MLOCAL SINT32 PLCSVI_PlcDllPrepareEx_Impl(PLCPROJ *pProject, PLC_LIBINFO *pInfo, PLC_EXTLIBCONFIG *pConfig)// @suppress("Unused static function")
 {
     int s32Handle = 0;
     pPlcName      = libplc_GetProjectName(pProject);
@@ -103,11 +105,12 @@ MLOCAL SINT32 PLCSVI_PlcDllPrepareEx_Impl(PLCPROJ *pProject, PLC_LIBINFO *pInfo,
  *
  * @retval     N/A
 *******************************************************************************/
-MLOCAL VOID PLCSVI_PlcDllInit_Impl(PLCPROJ *pProject, PLC_LIBINFO *pInfo)
+MLOCAL VOID PLCSVI_PlcDllInit_Impl(PLCPROJ *pProject, PLC_LIBINFO *pInfo)// @suppress("Unused static function")
 {
     plcsvi_LibHandle   = 0;
     u32TaskDelay       = 0;
     s32TaskHandle      = 0;
+    LST_SVI            = 0;
     SINT32 s32Prio     = 0;
     pPlcName           = libplc_GetProjectName(pProject);
 
@@ -123,11 +126,18 @@ MLOCAL VOID PLCSVI_PlcDllInit_Impl(PLCPROJ *pProject, PLC_LIBINFO *pInfo)
                   s32Prio,
                   VX_FP_TASK,
                   10000,
-                  (FUNCPTR)PLCTEST_Main);
+                  (FUNCPTR)PLCSVI_Main);
 
     if (s32TaskHandle != 0)
     {
         test_Info("Task for SviUpdate spawned!");
+
+        LST_SVI = lst_New(sizeof(plc_Variable));
+
+        if (LST_SVI == NULL)
+        {
+            test_Err("Failed to get Memory for SVI List");
+        }
     }
 
 	return;
@@ -142,23 +152,29 @@ MLOCAL VOID PLCSVI_PlcDllInit_Impl(PLCPROJ *pProject, PLC_LIBINFO *pInfo)
  *
  * @retval     N/A
 *******************************************************************************/
-MLOCAL VOID PLCSVI_PlcDllDeinit_Impl(PLCPROJ *pProject, PLC_LIBINFO *pInfo)
+MLOCAL VOID PLCSVI_PlcDllDeinit_Impl(PLCPROJ *pProject, PLC_LIBINFO *pInfo) // @suppress("Unused static function")
 {
     test_Info("Clean up Testregistry!");
 
-    if (s32TaskHandle != ERROR)
+    if (s32TaskHandle != 0)
     {
-        test_Info("Delete Test Task!");
+        test_Info("Delete sviupdate Task!");
         taskDelete(s32TaskHandle);
     }
 
+    if (LST_SVI != 0)
+    {
+        lst_Del(LST_SVI);
+    }
 
 	return;
 }
 
 /* ----------------------------------------------------------------- */
-void PLCTEST_Main(void)
+void PLCSVI_Main(void)
 {
+    UINT32 u32Size = 0;
+    struct plc_Variable *sTemp = 0;
     test_Info("PLCSVI_Main: Started");
 
     //--- Wait for cycle delay.
@@ -168,10 +184,43 @@ void PLCTEST_Main(void)
         taskDelay(u32TaskDelay);
         sys_CycleStart();
 
-        if (sTest.bValid == TRUE)
+        sTemp = lst_GetHead(LST_SVI);
+
+        while(sTemp != NULL)
         {
-            svi_GetVal(sTest.pLib, sTest.sAddr, sTest.pData);
+            if (sTemp->bValid == TRUE)
+            {
+                svi_GetVal(sTemp->pLib, sTemp->sAddr, &sTemp->u32Data);
+
+                u32Size = sTemp->u32Format & 0xf;
+
+                switch (u32Size)
+                {
+                case SVI_F_BOOL8:
+                case SVI_F_UINT1:
+                case SVI_F_UINT8:
+                case SVI_F_SINT8:  memcpy(sTemp->pData, &sTemp->u32Data, 1); break;
+
+                case SVI_F_UINT16:
+                case SVI_F_SINT16: memcpy(sTemp->pData, &sTemp->u32Data, 2); break;
+
+                case SVI_F_UINT32:
+                case SVI_F_SINT32:
+                case SVI_F_REAL32: memcpy(sTemp->pData, &sTemp->u32Data, 4); break;
+
+                case SVI_F_UINT64:
+                case SVI_F_SINT64:
+                case SVI_F_REAL64: memcpy(sTemp->pData, &sTemp->u32Data, 4); break;
+
+                default:
+                    test_Err("PLCSVI_Main : can not copy variable data! size not defined");
+                }
+            }
+
+            sTemp = lst_GetNext(sTemp);
         }
+
+
 
     } while(1);
 
@@ -193,17 +242,22 @@ void PLCTEST_Main(void)
 *******************************************************************************/
 SINT32 ADDVARIABLE(CHAR *strModule, CHAR *strVariable, SINT32 pData)
 {
+    struct plc_Variable *sTemp = 0;
 
     if (strModule != NULL)
     {
-        sTest.pLib = svi_GetLib(strModule);
+        sTemp = lst_AddTail(LST_SVI);
+
+        memset(sTemp, 0, sizeof(plc_Variable));
+
+        sTemp->pLib = svi_GetLib(strModule);
     }
     if (strVariable != NULL)
     {
-        sTest.pData = (void*)pData;
+        sTemp->pData = (void*)pData;
 
-        sTest.bValid = (svi_GetAddr(sTest.pLib, strVariable, &sTest.sAddr, &sTest.u32Format) == SVI_E_OK) &&
-                       (sTest.pData  != NULL);
+        sTemp->bValid = (svi_GetAddr(sTemp->pLib, strVariable, &sTemp->sAddr, &sTemp->u32Format) == SVI_E_OK) &&
+                        (sTemp->pData  != NULL);
 
     }
 
