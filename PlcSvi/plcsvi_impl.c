@@ -41,7 +41,8 @@ SINT32 s32TaskHandle;
 UINT32 u32TaskDelay;
 
 CHAR* pPlcName;
-LST_ID *LST_SVI;
+LST_ID *LST_SVI_READ;
+LST_ID *LST_SVI_WRITE;
 
 /***********************************
  * Test Registry
@@ -53,8 +54,11 @@ typedef struct plc_Variable
   SVI_ADDR sAddr;
   void* pData;
   UINT32 u32Data;
+  UINT32 u32SizeType;
+  UINT32 u32Size;
   UINT32 u32Format;
   BOOL bValid;
+  BOOL bLogged;
 
 } plc_Variable;
 
@@ -66,6 +70,8 @@ plc_Variable sTest;
  **********************************************************************
  */
 void PLCSVI_Main(void);
+void updateRead(void);
+void updateWrite(void);
 
 /**
  ********************************************************************************
@@ -89,7 +95,7 @@ MLOCAL SINT32 PLCSVI_PlcDllPrepareEx_Impl(PLCPROJ *pProject, PLC_LIBINFO *pInfo,
 
     if (s32Handle != ERROR)
     {
-        log_Err("Can not install module, Testing-Task HooxTest alread running");
+        log_Err("Can not install module, Testing-Task SviUpdate alread running");
         return s32Handle;
     }
 
@@ -110,7 +116,8 @@ MLOCAL VOID PLCSVI_PlcDllInit_Impl(PLCPROJ *pProject, PLC_LIBINFO *pInfo)// @sup
     plcsvi_LibHandle   = 0;
     u32TaskDelay       = 0;
     s32TaskHandle      = 0;
-    LST_SVI            = 0;
+    LST_SVI_READ       = 0;
+    LST_SVI_WRITE      = 0;
     SINT32 s32Prio     = 0;
     pPlcName           = libplc_GetProjectName(pProject);
 
@@ -132,11 +139,17 @@ MLOCAL VOID PLCSVI_PlcDllInit_Impl(PLCPROJ *pProject, PLC_LIBINFO *pInfo)// @sup
     {
         test_Info("Task for SviUpdate spawned!");
 
-        LST_SVI = lst_New(sizeof(plc_Variable));
+        LST_SVI_READ = lst_New(sizeof(plc_Variable));
 
-        if (LST_SVI == NULL)
+        if (LST_SVI_READ == NULL)
         {
-            test_Err("Failed to get Memory for SVI List");
+            test_Err("Failed to get Memory for SVI READ List");
+        }
+        LST_SVI_WRITE = lst_New(sizeof(plc_Variable));
+
+        if (LST_SVI_WRITE == NULL)
+        {
+            test_Err("Failed to get Memory for SVI WRITE List");
         }
     }
 
@@ -162,9 +175,14 @@ MLOCAL VOID PLCSVI_PlcDllDeinit_Impl(PLCPROJ *pProject, PLC_LIBINFO *pInfo) // @
         taskDelete(s32TaskHandle);
     }
 
-    if (LST_SVI != 0)
+    if (LST_SVI_READ != 0)
     {
-        lst_Del(LST_SVI);
+        lst_Del(LST_SVI_READ);
+    }
+
+    if (LST_SVI_WRITE != 0)
+    {
+        lst_Del(LST_SVI_WRITE);
     }
 
 	return;
@@ -173,8 +191,7 @@ MLOCAL VOID PLCSVI_PlcDllDeinit_Impl(PLCPROJ *pProject, PLC_LIBINFO *pInfo) // @
 /* ----------------------------------------------------------------- */
 void PLCSVI_Main(void)
 {
-    UINT32 u32Size = 0;
-    struct plc_Variable *sTemp = 0;
+
     test_Info("PLCSVI_Main: Started");
 
     //--- Wait for cycle delay.
@@ -184,17 +201,39 @@ void PLCSVI_Main(void)
         taskDelay(u32TaskDelay);
         sys_CycleStart();
 
-        sTemp = lst_GetHead(LST_SVI);
+        updateRead();
 
-        while(sTemp != NULL)
+
+
+    } while(1);
+
+    test_Info("PLCSVI_Main: Removed");
+
+}
+
+// update list with variables to read
+void updateRead()
+{
+    struct plc_Variable *sTemp = 0;
+    UINT32 u32Size = 0;
+
+    sTemp = lst_GetHead(LST_SVI_READ);
+
+    while(sTemp != NULL)
+    {
+        if (sTemp->bValid == TRUE)
         {
-            if (sTemp->bValid == TRUE)
+            if ((sTemp->u32Format & SVI_F_BLK) == SVI_F_BLK)
+            {
+                u32Size = sTemp->u32Size;
+
+                svi_GetBlk(sTemp->pLib, sTemp->sAddr, sTemp->pData, &u32Size);
+            }
+            else
             {
                 svi_GetVal(sTemp->pLib, sTemp->sAddr, &sTemp->u32Data);
 
-                u32Size = sTemp->u32Format & 0xf;
-
-                switch (u32Size)
+                switch (sTemp->u32SizeType)
                 {
                 case SVI_F_BOOL8:
                 case SVI_F_UINT1:
@@ -213,20 +252,70 @@ void PLCSVI_Main(void)
                 case SVI_F_REAL64: memcpy(sTemp->pData, &sTemp->u32Data, 4); break;
 
                 default:
-                    test_Err("PLCSVI_Main : can not copy variable data! size not defined");
+
+                    if (sTemp->bLogged == FALSE)
+                    {
+                        test_Err("PLCSVI_Main : can not copy variable data! size not defined");
+                        sTemp->bLogged = TRUE;
+                    }
+
                 }
             }
-
-            sTemp = lst_GetNext(sTemp);
         }
 
+        sTemp = lst_GetNext(sTemp);
+    }
+}
 
+// update list with variables to write
+void updateWrite()
+{
+    UINT32 u32Value = 0;
+    struct plc_Variable *sTemp = 0;
 
-    } while(1);
+    sTemp = lst_GetHead(LST_SVI_WRITE);
 
-    test_Info("PLCSVI_Main: Removed");
+    while(sTemp != NULL)
+    {
+        if (sTemp->bValid == TRUE)
+        {
+            u32Value = 0;
+
+            switch (sTemp->u32SizeType)
+            {
+            case SVI_F_BOOL8:
+            case SVI_F_UINT1:
+            case SVI_F_UINT8:
+            case SVI_F_SINT8:  memcpy(&u32Value, &sTemp->pData, 1); break;
+
+            case SVI_F_UINT16:
+            case SVI_F_SINT16: memcpy(&u32Value, &sTemp->pData, 2); break;
+
+            case SVI_F_UINT32:
+            case SVI_F_SINT32:
+            case SVI_F_REAL32: memcpy(&u32Value, &sTemp->pData, 4); break;
+
+            case SVI_F_UINT64:
+            case SVI_F_SINT64:
+            case SVI_F_REAL64: memcpy(&u32Value, &sTemp->pData, 4); break;
+            default:
+                test_Err("PLCSVI_Main : can not copy variable data! size not defined");
+            }
+
+            if (u32Value != sTemp->u32Data)
+            {
+                sTemp->u32Data = u32Value;
+
+                svi_SetVal(sTemp->pLib, sTemp->sAddr, sTemp->u32Data);
+            }
+
+        }
+
+        sTemp = lst_GetNext(sTemp);
+    }
 
 }
+
 /**
  ********************************************************************************
  * @brief Function that demonstrates how to create a function, that can be called
@@ -246,7 +335,7 @@ SINT32 ADDVARIABLE(CHAR *strModule, CHAR *strVariable, SINT32 pData)
 
     if (strModule != NULL)
     {
-        sTemp = lst_AddTail(LST_SVI);
+        sTemp = lst_AddTail(LST_SVI_READ);
 
         memset(sTemp, 0, sizeof(plc_Variable));
 
@@ -254,10 +343,14 @@ SINT32 ADDVARIABLE(CHAR *strModule, CHAR *strVariable, SINT32 pData)
     }
     if (strVariable != NULL)
     {
-        sTemp->pData = (void*)pData;
+        sTemp->pData     = (void*)pData;
+        sTemp->u32Format = SVI_F_EXTLEN;
 
         sTemp->bValid = (svi_GetAddr(sTemp->pLib, strVariable, &sTemp->sAddr, &sTemp->u32Format) == SVI_E_OK) &&
                         (sTemp->pData  != NULL);
+
+        sTemp->u32SizeType = sTemp->u32Format & 0xF;
+        sTemp->u32Size     = sTemp->u32Format >> 16;
 
     }
 
