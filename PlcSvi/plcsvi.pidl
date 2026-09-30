@@ -11,7 +11,19 @@ VAR_INPUT
     strModule   : STRING;
     strVariable : STRING;
     pData   	 : DINT;
+END_VAR 
+
+(*
+ * add variable for updatelist
+ * AddVariable('RES', 'Time_us', ADR(u32Time));
+*)
+FUNCTION AddVariableWrite : DINT
+VAR_INPUT
+    strModule   : STRING;
+    strVariable : STRING;
+    pData   	 : DINT;
 END_VAR    
+   
 
 (*
  * change time for update

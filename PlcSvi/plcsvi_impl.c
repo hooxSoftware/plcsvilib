@@ -27,6 +27,7 @@
 #include <svi_e.h>
 #include <prof_e.h>
 #include <lst_e.h>
+
 /*
  **********************************************************************
  project includes
@@ -72,6 +73,7 @@ plc_Variable sTest;
 void PLCSVI_Main(void);
 void updateRead(void);
 void updateWrite(void);
+VOID InitVariable(CHAR *strModule, CHAR *strVariable, SINT32 pData, plc_Variable *sTemp);
 
 /**
  ********************************************************************************
@@ -197,13 +199,13 @@ void PLCSVI_Main(void)
     //--- Wait for cycle delay.
     do
     {
+        updateWrite();
+
         sys_CycleEnd();
         taskDelay(u32TaskDelay);
         sys_CycleStart();
 
         updateRead();
-
-
 
     } while(1);
 
@@ -286,18 +288,19 @@ void updateWrite()
             case SVI_F_BOOL8:
             case SVI_F_UINT1:
             case SVI_F_UINT8:
-            case SVI_F_SINT8:  memcpy(&u32Value, &sTemp->pData, 1); break;
+            case SVI_F_SINT8:  memcpy(&u32Value, (sTemp->pData), 1); break;
 
             case SVI_F_UINT16:
-            case SVI_F_SINT16: memcpy(&u32Value, &sTemp->pData, 2); break;
+            case SVI_F_SINT16: memcpy(&u32Value, (sTemp->pData), 2); break;
 
             case SVI_F_UINT32:
             case SVI_F_SINT32:
-            case SVI_F_REAL32: memcpy(&u32Value, &sTemp->pData, 4); break;
+            case SVI_F_REAL32: memcpy(&u32Value, (sTemp->pData), 4); break;
 
             case SVI_F_UINT64:
             case SVI_F_SINT64:
-            case SVI_F_REAL64: memcpy(&u32Value, &sTemp->pData, 4); break;
+            case SVI_F_REAL64: memcpy(&u32Value, (sTemp->pData), 4); break;
+
             default:
                 test_Err("PLCSVI_Main : can not copy variable data! size not defined");
             }
@@ -333,29 +336,87 @@ SINT32 ADDVARIABLE(CHAR *strModule, CHAR *strVariable, SINT32 pData)
 {
     struct plc_Variable *sTemp = 0;
 
-    if (strModule != NULL)
-    {
-        sTemp = lst_AddTail(LST_SVI_READ);
+    sTemp = lst_AddTail(LST_SVI_READ);
 
-        memset(sTemp, 0, sizeof(plc_Variable));
-
-        sTemp->pLib = svi_GetLib(strModule);
-    }
-    if (strVariable != NULL)
-    {
-        sTemp->pData     = (void*)pData;
-        sTemp->u32Format = SVI_F_EXTLEN;
-
-        sTemp->bValid = (svi_GetAddr(sTemp->pLib, strVariable, &sTemp->sAddr, &sTemp->u32Format) == SVI_E_OK) &&
-                        (sTemp->pData  != NULL);
-
-        sTemp->u32SizeType = sTemp->u32Format & 0xF;
-        sTemp->u32Size     = sTemp->u32Format >> 16;
-
-    }
+    InitVariable(strModule, strVariable, pData, sTemp);
 
 	return 0;
 }
+
+/**
+ ********************************************************************************
+ * @brief Function that demonstrates how to create a function, that can be called
+ * from M-PLC. Input is returned as output.
+ *
+ * @param[in]  strModule     name of module
+ * @param[in]  strVariable   name of variable
+ * @param[in]  pData         pointer to variable
+ *
+ * @retval     0
+ *
+ * @note       Functions that can be called from M-PLC must be capitalized.
+*******************************************************************************/
+SINT32 ADDVARIABLEWRITE(CHAR *strModule, CHAR *strVariable, SINT32 pData)
+{
+    struct plc_Variable *sTemp = 0;
+
+    sTemp = lst_AddTail(LST_SVI_WRITE);
+
+    InitVariable(strModule, strVariable, pData, sTemp);
+
+    return 0;
+}
+
+/**
+ ********************************************************************************
+ * @brief Function that demonstrates how to create a function, that can be called
+ * from M-PLC. Input is returned as output.
+ *
+ * @param[in]  strModule     name of module
+ * @param[in]  strVariable   name of variable
+ * @param[in]  pData         pointer to variable
+ *
+ * @retval     0
+ *
+ * @note       Functions that can be called from M-PLC must be capitalized.
+*******************************************************************************/
+VOID InitVariable(CHAR *strModule, CHAR *strVariable, SINT32 pData, plc_Variable *pTemp)
+{
+
+    if (pTemp == NULL)
+    {
+        return;
+    }
+
+    memset(pTemp, 0, sizeof(plc_Variable));
+
+    if (strModule == NULL)
+    {
+        return;
+    }
+
+    pTemp->pLib = svi_GetLib(strModule);
+
+    if (strVariable == NULL)
+    {
+        return;
+    }
+
+    pTemp->pData     = (void*)pData;
+    pTemp->u32Format = SVI_F_EXTLEN;
+
+    pTemp->bValid = (svi_GetAddr(pTemp->pLib, strVariable, &pTemp->sAddr, &pTemp->u32Format) == SVI_E_OK) &&
+                    (pTemp->pData  != NULL);
+
+    pTemp->u32SizeType = pTemp->u32Format & 0xF;
+    pTemp->u32Size     = pTemp->u32Format >> 16;
+
+    if (pTemp->bValid == TRUE)
+    {
+        svi_GetVal(pTemp->pLib, pTemp->sAddr, &pTemp->u32Data);
+    }
+}
+
 
 /**
  ********************************************************************************
