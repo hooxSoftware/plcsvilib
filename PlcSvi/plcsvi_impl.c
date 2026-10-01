@@ -40,6 +40,7 @@
 UINT32 plcsvi_LibHandle;				/* library-handle */
 SINT32 s32TaskHandle;
 UINT32 u32TaskDelay;
+SEM_ID m_Semaphore;
 
 CHAR* pPlcName;
 LST_ID *LST_SVI_READ;
@@ -71,9 +72,11 @@ plc_Variable sTest;
  **********************************************************************
  */
 void PLCSVI_Main(void);
+void enterCriticalSection();
+void leaveCriticalSection();
 void updateRead(void);
 void updateWrite(void);
-VOID InitVariable(CHAR *strModule, CHAR *strVariable, SINT32 pData, plc_Variable *sTemp);
+BOOL InitVariable(CHAR *strModule, CHAR *strVariable, SINT32 pData, plc_Variable *sTemp);
 
 /**
  ********************************************************************************
@@ -123,6 +126,24 @@ MLOCAL VOID PLCSVI_PlcDllInit_Impl(PLCPROJ *pProject, PLC_LIBINFO *pInfo)// @sup
     SINT32 s32Prio     = 0;
     pPlcName           = libplc_GetProjectName(pProject);
 
+    LST_SVI_READ = lst_New(sizeof(plc_Variable));
+
+    if (LST_SVI_READ == NULL)
+    {
+        test_Err("Failed to get Memory for SVI READ List");
+        return;
+    }
+
+    LST_SVI_WRITE = lst_New(sizeof(plc_Variable));
+
+    if (LST_SVI_WRITE == NULL)
+    {
+        test_Err("Failed to get Memory for SVI WRITE List");
+        return;
+    }
+
+    m_Semaphore = semMCreate(SEM_Q_PRIORITY | SEM_INVERSION_SAFE);
+
     pf_GetInt(pPlcName, "BaseParms", "Priority", 255, &s32Prio, 0, 0);
     s32Prio--;
 
@@ -140,19 +161,6 @@ MLOCAL VOID PLCSVI_PlcDllInit_Impl(PLCPROJ *pProject, PLC_LIBINFO *pInfo)// @sup
     if (s32TaskHandle != 0)
     {
         test_Info("Task for SviUpdate spawned!");
-
-        LST_SVI_READ = lst_New(sizeof(plc_Variable));
-
-        if (LST_SVI_READ == NULL)
-        {
-            test_Err("Failed to get Memory for SVI READ List");
-        }
-        LST_SVI_WRITE = lst_New(sizeof(plc_Variable));
-
-        if (LST_SVI_WRITE == NULL)
-        {
-            test_Err("Failed to get Memory for SVI WRITE List");
-        }
     }
 
 	return;
@@ -175,16 +183,26 @@ MLOCAL VOID PLCSVI_PlcDllDeinit_Impl(PLCPROJ *pProject, PLC_LIBINFO *pInfo) // @
     {
         test_Info("Delete sviupdate Task!");
         taskDelete(s32TaskHandle);
+        s32TaskHandle = 0;
+    }
+
+    if (m_Semaphore != NULL)
+    {
+        semDelete(m_Semaphore);
+
+        m_Semaphore = NULL;
     }
 
     if (LST_SVI_READ != 0)
     {
         lst_Del(LST_SVI_READ);
+        LST_SVI_READ = 0;
     }
 
     if (LST_SVI_WRITE != 0)
     {
         lst_Del(LST_SVI_WRITE);
+        LST_SVI_WRITE = 0;
     }
 
 	return;
@@ -199,13 +217,19 @@ void PLCSVI_Main(void)
     //--- Wait for cycle delay.
     do
     {
-        updateWrite();
 
         sys_CycleEnd();
         taskDelay(u32TaskDelay);
         sys_CycleStart();
 
+        enterCriticalSection();
+
         updateRead();
+
+        updateWrite();
+
+        leaveCriticalSection();
+
 
     } while(1);
 
@@ -248,10 +272,6 @@ void updateRead()
                 case SVI_F_UINT32:
                 case SVI_F_SINT32:
                 case SVI_F_REAL32: memcpy(sTemp->pData, &sTemp->u32Data, 4); break;
-
-                case SVI_F_UINT64:
-                case SVI_F_SINT64:
-                case SVI_F_REAL64: memcpy(sTemp->pData, &sTemp->u32Data, 4); break;
 
                 default:
 
@@ -299,7 +319,7 @@ void updateWrite()
 
             case SVI_F_UINT64:
             case SVI_F_SINT64:
-            case SVI_F_REAL64: memcpy(&u32Value, (sTemp->pData), 4); break;
+            case SVI_F_REAL64: memcpy(&u32Value, (sTemp->pData), 8); break;
 
             default:
                 test_Err("PLCSVI_Main : can not copy variable data! size not defined");
@@ -335,6 +355,9 @@ void updateWrite()
 SINT32 ADDVARIABLE(CHAR *strModule, CHAR *strVariable, SINT32 pData, UINT32 u32Size)
 {
     struct plc_Variable *sTemp = 0;
+    SINT32 s32Return = -1;
+
+    enterCriticalSection();
 
     sTemp = lst_AddTail(LST_SVI_READ);
 
@@ -343,12 +366,19 @@ SINT32 ADDVARIABLE(CHAR *strModule, CHAR *strVariable, SINT32 pData, UINT32 u32S
         memset(sTemp, 0, sizeof(plc_Variable));
         sTemp->u32Size = u32Size;
 
-        InitVariable(strModule, strVariable, pData, sTemp);
-
-        return 0;
+        if (InitVariable(strModule, strVariable, pData, sTemp) == FALSE)
+        {
+            lst_RemTail(LST_SVI_READ);
+        }
+        else
+        {
+            s32Return = 0;
+        }
     }
 
-    return -1;
+    leaveCriticalSection();
+
+    return s32Return;
 }
 
 /**
@@ -367,6 +397,9 @@ SINT32 ADDVARIABLE(CHAR *strModule, CHAR *strVariable, SINT32 pData, UINT32 u32S
 SINT32 ADDVARIABLEWRITE(CHAR *strModule, CHAR *strVariable, SINT32 pData, UINT32 u32Size)
 {
     struct plc_Variable *sTemp = 0;
+    SINT32 s32Return = -1;
+
+    enterCriticalSection();
 
     sTemp = lst_AddTail(LST_SVI_WRITE);
 
@@ -375,12 +408,20 @@ SINT32 ADDVARIABLEWRITE(CHAR *strModule, CHAR *strVariable, SINT32 pData, UINT32
         memset(sTemp, 0, sizeof(plc_Variable));
         sTemp->u32Size = u32Size;
 
-        InitVariable(strModule, strVariable, pData, sTemp);
+        if (InitVariable(strModule, strVariable, pData, sTemp) == FALSE)
+        {
+            lst_RemTail(LST_SVI_WRITE);
+        }
+        else
+        {
+            s32Return = 0;
+        }
 
-        return 0;
     }
 
-    return -1;
+    leaveCriticalSection();
+
+    return s32Return;
 }
 
 /**
@@ -396,36 +437,50 @@ SINT32 ADDVARIABLEWRITE(CHAR *strModule, CHAR *strVariable, SINT32 pData, UINT32
  *
  * @note       Functions that can be called from M-PLC must be capitalized.
 *******************************************************************************/
-VOID InitVariable(CHAR *strModule, CHAR *strVariable, SINT32 pData, plc_Variable *pTemp)
+BOOL InitVariable(CHAR *strModule, CHAR *strVariable, SINT32 pData, plc_Variable *pTemp)
 {
 
     if (pTemp == NULL)
     {
-        return;
+        test_Err("InitVariable failed, list entry not available");
+        return FALSE;
     }
 
     if (strModule == NULL)
     {
-        return;
+        test_Err("InitVariable failed, module name not available");
+        return FALSE;
+    }
+
+    if (strVariable == NULL)
+    {
+        test_Err("InitVariable failed, variable name not available");
+        return FALSE;
+    }
+
+    if (pData == 0)
+    {
+        test_Err("InitVariable failed, external memory not available");
+        return FALSE;
     }
 
     pTemp->pLib = svi_GetLib(strModule);
 
-    if (strVariable == NULL)
+    if (pTemp->pLib == NULL)
     {
-        return;
+        test_Err("InitVariable failed, Module %s not found", strModule);
+        return FALSE;
     }
 
     pTemp->pData     = (void*)pData;
     pTemp->u32Format = SVI_F_EXTLEN;
 
-    pTemp->bValid = (svi_GetAddr(pTemp->pLib, strVariable, &pTemp->sAddr, &pTemp->u32Format) == SVI_E_OK) &&
-                    (pTemp->pData  != NULL);
+    pTemp->bValid = (svi_GetAddr(pTemp->pLib, strVariable, &pTemp->sAddr, &pTemp->u32Format) == SVI_E_OK);
 
     if (pTemp->bValid == FALSE)
     {
         test_Err("InitVariable failed, check if %s exist", strVariable);
-        return;
+        return FALSE;
     }
 
     pTemp->u32SizeType = pTemp->u32Format & 0xF;
@@ -441,12 +496,16 @@ VOID InitVariable(CHAR *strModule, CHAR *strVariable, SINT32 pData, plc_Variable
 
     if (pTemp->bValid == FALSE)
     {
-        test_Err("InitVariable failed, check if size of %s", strVariable);
-        return;
+        test_Err("InitVariable failed, check size of %s", strVariable);
+        return FALSE;
     }
 
-    svi_GetVal(pTemp->pLib, pTemp->sAddr, &pTemp->u32Data);
+    if (pTemp->u32Size <= 4)
+    {
+        svi_GetVal(pTemp->pLib, pTemp->sAddr, &pTemp->u32Data);
+    }
 
+    return TRUE;
 }
 
 
@@ -474,3 +533,22 @@ SINT32 SETTASKTIME(UINT32 u32Time)
     return 0;
 }
 
+/* ----------------------------------------------------------------- */
+void enterCriticalSection()
+{
+    // test immediate availability of semaphore (like it should be most of the time)
+    if (semTake(m_Semaphore, NO_WAIT) == ERROR)
+    {
+        semTake(m_Semaphore, WAIT_FOREVER);
+    }
+}
+
+/* ----------------------------------------------------------------- */
+void leaveCriticalSection()
+{
+    if (semGive(m_Semaphore) == ERROR)
+    {
+        test_Err("leaveCriticalSection: semaphore not valid or not owned by me");
+    }
+
+}
