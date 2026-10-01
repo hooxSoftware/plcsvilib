@@ -11,6 +11,7 @@ VAR_INPUT
     strModule   : STRING;
     strVariable : STRING;
     pData   	 : DINT;
+    u32Size		 : UDINT;
 END_VAR 
 
 (*
@@ -22,6 +23,7 @@ VAR_INPUT
     strModule   : STRING;
     strVariable : STRING;
     pData   	 : DINT;
+    u32Size		 : UDINT;
 END_VAR    
    
 

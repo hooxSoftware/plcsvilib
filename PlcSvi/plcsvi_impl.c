@@ -332,15 +332,23 @@ void updateWrite()
  * 
  * @note       Functions that can be called from M-PLC must be capitalized.
 *******************************************************************************/
-SINT32 ADDVARIABLE(CHAR *strModule, CHAR *strVariable, SINT32 pData)
+SINT32 ADDVARIABLE(CHAR *strModule, CHAR *strVariable, SINT32 pData, UINT32 u32Size)
 {
     struct plc_Variable *sTemp = 0;
 
     sTemp = lst_AddTail(LST_SVI_READ);
 
-    InitVariable(strModule, strVariable, pData, sTemp);
+    if (sTemp != NULL)
+    {
+        memset(sTemp, 0, sizeof(plc_Variable));
+        sTemp->u32Size = u32Size;
 
-	return 0;
+        InitVariable(strModule, strVariable, pData, sTemp);
+
+        return 0;
+    }
+
+    return -1;
 }
 
 /**
@@ -356,15 +364,23 @@ SINT32 ADDVARIABLE(CHAR *strModule, CHAR *strVariable, SINT32 pData)
  *
  * @note       Functions that can be called from M-PLC must be capitalized.
 *******************************************************************************/
-SINT32 ADDVARIABLEWRITE(CHAR *strModule, CHAR *strVariable, SINT32 pData)
+SINT32 ADDVARIABLEWRITE(CHAR *strModule, CHAR *strVariable, SINT32 pData, UINT32 u32Size)
 {
     struct plc_Variable *sTemp = 0;
 
     sTemp = lst_AddTail(LST_SVI_WRITE);
 
-    InitVariable(strModule, strVariable, pData, sTemp);
+    if (sTemp != NULL)
+    {
+        memset(sTemp, 0, sizeof(plc_Variable));
+        sTemp->u32Size = u32Size;
 
-    return 0;
+        InitVariable(strModule, strVariable, pData, sTemp);
+
+        return 0;
+    }
+
+    return -1;
 }
 
 /**
@@ -388,8 +404,6 @@ VOID InitVariable(CHAR *strModule, CHAR *strVariable, SINT32 pData, plc_Variable
         return;
     }
 
-    memset(pTemp, 0, sizeof(plc_Variable));
-
     if (strModule == NULL)
     {
         return;
@@ -408,13 +422,31 @@ VOID InitVariable(CHAR *strModule, CHAR *strVariable, SINT32 pData, plc_Variable
     pTemp->bValid = (svi_GetAddr(pTemp->pLib, strVariable, &pTemp->sAddr, &pTemp->u32Format) == SVI_E_OK) &&
                     (pTemp->pData  != NULL);
 
-    pTemp->u32SizeType = pTemp->u32Format & 0xF;
-    pTemp->u32Size     = pTemp->u32Format >> 16;
-
-    if (pTemp->bValid == TRUE)
+    if (pTemp->bValid == FALSE)
     {
-        svi_GetVal(pTemp->pLib, pTemp->sAddr, &pTemp->u32Data);
+        test_Err("InitVariable failed, check if %s exist", strVariable);
+        return;
     }
+
+    pTemp->u32SizeType = pTemp->u32Format & 0xF;
+    //check size of variable or use target size
+    if (pTemp->u32Size == 0)
+    {
+        pTemp->u32Size = pTemp->u32Format >> 16;
+    }
+    else
+    {
+        pTemp->bValid = (pTemp->u32Size == (pTemp->u32Format >> 16));
+    }
+
+    if (pTemp->bValid == FALSE)
+    {
+        test_Err("InitVariable failed, check if size of %s", strVariable);
+        return;
+    }
+
+    svi_GetVal(pTemp->pLib, pTemp->sAddr, &pTemp->u32Data);
+
 }
 
 

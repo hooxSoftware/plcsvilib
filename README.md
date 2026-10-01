@@ -32,13 +32,14 @@ END_VAR
 		SetTaskTime(100);
 
 		(* SAMPLE/.aExternal *)
-		AddVariable('SAMPLE', '.aExternal', ADR(u8Data));
+		AddVariable('SAMPLE', '.aExternal', ADR(u8Data), sizeof(u8Data);
 		
 		(* RES/Time_s *)
-		AddVariable('RES', 'Time_s', ADR(u32Test));
+		AddVariable('RES', 'Time_s', ADR(u32Test), 0);
+		
 		(* for testing write Time_s in own variable*)
 		(* SAMPLE/.u32External *)
-		AddVariableWrite('SAMPLE', '.u32External', ADR(u32Test));
+		AddVariableWrite('SAMPLE', '.u32External', ADR(u32Test), 0);
 	END_IF
 
 ;
@@ -55,7 +56,7 @@ END_PROGRAM
 |strModule    |STRING|name of target module|
 |strVariable |STRING|name of target variable|
 |pData  |DINT|pointer to local variable ADR(...) |
-
+|u32Size |UDINT|size of local variable or 0|
 
 #### AddVariableWrite
 
@@ -64,6 +65,7 @@ END_PROGRAM
 |strModule    |STRING|name of target module|
 |strVariable |STRING|name of target variable|
 |pData  |DINT|pointer to local variable ADR(...) |
+|u32Size |UDINT|size of local variable or 0|
 
 #### SetTaskTime
 
