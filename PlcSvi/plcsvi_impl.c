@@ -169,7 +169,7 @@ MLOCAL VOID PLCSVI_PlcDllInit_Impl(PLCPROJ *pProject, PLC_LIBINFO *pInfo)// @sup
 *******************************************************************************/
 MLOCAL VOID PLCSVI_PlcDllDeinit_Impl(PLCPROJ *pProject, PLC_LIBINFO *pInfo) // @suppress("Unused static function")
 {
-    test_Info("Clean up Testregistry!");
+    test_Info("Clean up PlcSviLib!");
 
     if (s32TaskHandle != 0)
     {

@@ -6,10 +6,10 @@
 			<provider-reference id="org.eclipse.cdt.managedbuilder.core.MBSLanguageSettingsProvider" ref="shared-provider"/>
 			<provider-reference id="at.bachmann.cdt.BaGCCBuildCommandParser" ref="shared-provider"/>
 			<provider-reference id="at.bachmann.cdt.BaGCppBuildCommandParser" ref="shared-provider"/>
-			<provider class="at.bachmann.cdt.toolchains.langsettings.CSpecsDetector" console="false" env-hash="17231884878049" id="at.bachmann.cdt.BaGCCBuiltinSpecsDetector" keep-relative-paths="false" name="Bachmann GCC BuiltinSpecDetector" parameter="${COMMAND} ${FLAGS} -E -P -v -dD &quot;${INPUTS}&quot;" prefer-non-shared="true">
+			<provider class="at.bachmann.cdt.toolchains.langsettings.CSpecsDetector" console="false" env-hash="36307230914273" id="at.bachmann.cdt.BaGCCBuiltinSpecsDetector" keep-relative-paths="false" name="Bachmann GCC BuiltinSpecDetector" parameter="${COMMAND} ${FLAGS} -E -P -v -dD &quot;${INPUTS}&quot;" prefer-non-shared="true">
 				<language-scope id="org.eclipse.cdt.core.gcc"/>
 			</provider>
-			<provider class="at.bachmann.cdt.toolchains.langsettings.CSpecsDetector" console="false" env-hash="16483993162849" id="at.bachmann.cdt.BaGCppBuiltinSpecsDetector" keep-relative-paths="false" name="Bachmann GC++ BuiltinSpecDetector" parameter="${COMMAND} ${FLAGS} -E -P -v -dD &quot;${INPUTS}&quot;" prefer-non-shared="true">
+			<provider class="at.bachmann.cdt.toolchains.langsettings.CSpecsDetector" console="false" env-hash="35559339199073" id="at.bachmann.cdt.BaGCppBuiltinSpecsDetector" keep-relative-paths="false" name="Bachmann GC++ BuiltinSpecDetector" parameter="${COMMAND} ${FLAGS} -E -P -v -dD &quot;${INPUTS}&quot;" prefer-non-shared="true">
 				<language-scope id="org.eclipse.cdt.core.g++"/>
 			</provider>
 		</extension>

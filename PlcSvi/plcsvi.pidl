@@ -3,8 +3,8 @@ Name=plcsvi
 Version Auto   
 
 (*
- * add variable for updatelist
- * AddVariable('RES', 'Time_us', ADR(u32Time));
+ * add variable to updatelist
+ * AddVariable('RES', 'Time_us', ADR(u32External));
 *)
 FUNCTION AddVariable : DINT
 VAR_INPUT
@@ -14,8 +14,8 @@ VAR_INPUT
 END_VAR 
 
 (*
- * add variable for updatelist
- * AddVariable('RES', 'Time_us', ADR(u32Time));
+ * add variable to updatelist
+ * AddVariableWrite('SAMPLE', '.u32External', ADR(u32Test));
 *)
 FUNCTION AddVariableWrite : DINT
 VAR_INPUT
