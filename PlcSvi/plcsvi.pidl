@@ -25,7 +25,32 @@ VAR_INPUT
     pData   	 : DINT;
     u32Size		 : UDINT;
 END_VAR    
-   
+
+(*
+ * remove variable from updatelist
+ * 
+ * s32Id := AddVariable('RES', 'Time_us', ADR(u32External));
+ * 
+ * RemoveVariable(s32Id);
+ * 
+*)
+FUNCTION RemoveVariable : BOOL
+VAR_INPUT
+    s32Variable   : DINT;
+END_VAR    
+
+(*
+ * check if variable of handle is valid
+ * 
+ * s32Id := AddVariable('RES', 'Time_us', ADR(u32External));
+ * 
+ * bValid := isValid(s32Id);
+ * 
+*)
+FUNCTION isValid : BOOL
+VAR_INPUT
+    s32Variable   : DINT;
+END_VAR  
 
 (*
  * change time for update

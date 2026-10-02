@@ -23,7 +23,6 @@
  system includes
  **********************************************************************
  */
-#include <math.h>
 #include <svi_e.h>
 #include <prof_e.h>
 #include <lst_e.h>
@@ -124,6 +123,7 @@ MLOCAL VOID PLCSVI_PlcDllInit_Impl(PLCPROJ *pProject, PLC_LIBINFO *pInfo)// @sup
     LST_SVI_READ       = 0;
     LST_SVI_WRITE      = 0;
     SINT32 s32Prio     = 0;
+    m_Semaphore        = 0;
     pPlcName           = libplc_GetProjectName(pProject);
 
     LST_SVI_READ = lst_New(sizeof(plc_Variable));
@@ -144,11 +144,19 @@ MLOCAL VOID PLCSVI_PlcDllInit_Impl(PLCPROJ *pProject, PLC_LIBINFO *pInfo)// @sup
 
     m_Semaphore = semMCreate(SEM_Q_PRIORITY | SEM_INVERSION_SAFE);
 
+    if (m_Semaphore == NULL)
+    {
+        test_Err("Failed to get semaphoe for update task!");
+        return;
+    }
+
     pf_GetInt(pPlcName, "BaseParms", "Priority", 255, &s32Prio, 0, 0);
     s32Prio--;
 
     // set task cycletime to 100 ms
     u32TaskDelay = (sysClkRateGet() * TASK_CYCLETIME) / 1000;
+
+    u32TaskDelay = u32TaskDelay == 0 ? u32TaskDelay : 1;
 
     s32TaskHandle =
     sys_TaskSpawn(libplc_GetProjectName(pProject),
@@ -158,9 +166,13 @@ MLOCAL VOID PLCSVI_PlcDllInit_Impl(PLCPROJ *pProject, PLC_LIBINFO *pInfo)// @sup
                   10000,
                   (FUNCPTR)PLCSVI_Main);
 
-    if (s32TaskHandle != 0)
+    if (s32TaskHandle == ERROR)
     {
-        test_Info("Task for SviUpdate spawned!");
+        test_Err("SviUpdate Task not spawned!");
+    }
+    else
+    {
+        test_Info("Task for SviUpdate runnning!");
     }
 
 	return;
@@ -253,35 +265,46 @@ void updateRead()
             {
                 u32Size = sTemp->u32Size;
 
-                svi_GetBlk(sTemp->pLib, sTemp->sAddr, sTemp->pData, &u32Size);
+                if (svi_GetBlk(sTemp->pLib, sTemp->sAddr, sTemp->pData, &u32Size) != SVI_E_OK)
+                {
+                    test_Err("svi_GetBlk returned error!");
+                    sTemp->bValid = FALSE;
+                }
             }
             else
             {
-                svi_GetVal(sTemp->pLib, sTemp->sAddr, &sTemp->u32Data);
-
-                switch (sTemp->u32SizeType)
+                if (svi_GetVal(sTemp->pLib, sTemp->sAddr, &sTemp->u32Data) != SVI_E_OK)
                 {
-                case SVI_F_BOOL8:
-                case SVI_F_UINT1:
-                case SVI_F_UINT8:
-                case SVI_F_SINT8:  memcpy(sTemp->pData, &sTemp->u32Data, 1); break;
-
-                case SVI_F_UINT16:
-                case SVI_F_SINT16: memcpy(sTemp->pData, &sTemp->u32Data, 2); break;
-
-                case SVI_F_UINT32:
-                case SVI_F_SINT32:
-                case SVI_F_REAL32: memcpy(sTemp->pData, &sTemp->u32Data, 4); break;
-
-                default:
-
-                    if (sTemp->bLogged == FALSE)
-                    {
-                        test_Err("PLCSVI_Main : can not copy variable data! size not defined");
-                        sTemp->bLogged = TRUE;
-                    }
-
+                    test_Err("svi_GetVal returned error!");
+                    sTemp->bValid = FALSE;
                 }
+                else
+                {
+                    switch (sTemp->u32SizeType)
+                    {
+                    case SVI_F_BOOL8:
+                    case SVI_F_UINT1:
+                    case SVI_F_UINT8:
+                    case SVI_F_SINT8:  memcpy(sTemp->pData, &sTemp->u32Data, 1); break;
+
+                    case SVI_F_UINT16:
+                    case SVI_F_SINT16: memcpy(sTemp->pData, &sTemp->u32Data, 2); break;
+
+                    case SVI_F_UINT32:
+                    case SVI_F_SINT32:
+                    case SVI_F_REAL32: memcpy(sTemp->pData, &sTemp->u32Data, 4); break;
+
+                    default:
+
+                        if (sTemp->bLogged == FALSE)
+                        {
+                            test_Err("updateRead : can not copy variable data! size not defined");
+                            sTemp->bLogged = TRUE;
+                        }
+
+                    }
+                }
+
             }
         }
 
@@ -293,6 +316,7 @@ void updateRead()
 void updateWrite()
 {
     UINT32 u32Value = 0;
+    UINT32 u32Size  = 0;
     struct plc_Variable *sTemp = 0;
 
     sTemp = lst_GetHead(LST_SVI_WRITE);
@@ -301,35 +325,54 @@ void updateWrite()
     {
         if (sTemp->bValid == TRUE)
         {
-            u32Value = 0;
 
-            switch (sTemp->u32SizeType)
+            if ((sTemp->u32Format & SVI_F_BLK) == SVI_F_BLK)
             {
-            case SVI_F_BOOL8:
-            case SVI_F_UINT1:
-            case SVI_F_UINT8:
-            case SVI_F_SINT8:  memcpy(&u32Value, (sTemp->pData), 1); break;
+                u32Size = sTemp->u32Size;
 
-            case SVI_F_UINT16:
-            case SVI_F_SINT16: memcpy(&u32Value, (sTemp->pData), 2); break;
-
-            case SVI_F_UINT32:
-            case SVI_F_SINT32:
-            case SVI_F_REAL32: memcpy(&u32Value, (sTemp->pData), 4); break;
-
-            case SVI_F_UINT64:
-            case SVI_F_SINT64:
-            case SVI_F_REAL64: memcpy(&u32Value, (sTemp->pData), 8); break;
-
-            default:
-                test_Err("PLCSVI_Main : can not copy variable data! size not defined");
+                if (svi_SetBlk(sTemp->pLib, sTemp->sAddr, sTemp->pData, u32Size) != SVI_E_OK)
+                {
+                    test_Err("svi_SetBlk returned error!");
+                    sTemp->bValid =FALSE;
+                }
             }
-
-            if (u32Value != sTemp->u32Data)
+            else
             {
-                sTemp->u32Data = u32Value;
+                u32Value = 0;
 
-                svi_SetVal(sTemp->pLib, sTemp->sAddr, sTemp->u32Data);
+                switch (sTemp->u32SizeType)
+                {
+                case SVI_F_BOOL8:
+                case SVI_F_UINT1:
+                case SVI_F_UINT8:
+                case SVI_F_SINT8:  memcpy(&u32Value, (sTemp->pData), 1); break;
+
+                case SVI_F_UINT16:
+                case SVI_F_SINT16: memcpy(&u32Value, (sTemp->pData), 2); break;
+
+                case SVI_F_UINT32:
+                case SVI_F_SINT32:
+                case SVI_F_REAL32: memcpy(&u32Value, (sTemp->pData), 4); break;
+
+                default:
+
+                    if (sTemp->bLogged == FALSE)
+                    {
+                        test_Err("updateWrite : can not copy variable data! size not defined");
+                        sTemp->bLogged = TRUE;
+                    }
+                }
+
+                if (u32Value != sTemp->u32Data)
+                {
+                    sTemp->u32Data = u32Value;
+
+                    if (svi_SetVal(sTemp->pLib, sTemp->sAddr, sTemp->u32Data) != SVI_E_OK)
+                    {
+                        test_Err("svi_SetVal returned error!");
+                        sTemp->bValid = FALSE;
+                    }
+                }
             }
 
         }
@@ -341,21 +384,25 @@ void updateWrite()
 
 /**
  ********************************************************************************
- * @brief Function that demonstrates how to create a function, that can be called
- * from M-PLC. Input is returned as output.
+ * @brief This function adds a variable into READ-list
  *
  * @param[in]  strModule     name of module
  * @param[in]  strVariable   name of variable
  * @param[in]  pData         pointer to variable
+ * @param[in]  u32Size       size of variable
  *
- * @retval     0
+ * @retval     handle to variable
  * 
  * @note       Functions that can be called from M-PLC must be capitalized.
 *******************************************************************************/
 SINT32 ADDVARIABLE(CHAR *strModule, CHAR *strVariable, SINT32 pData, UINT32 u32Size)
 {
     struct plc_Variable *sTemp = 0;
-    SINT32 s32Return = -1;
+
+    if (LST_SVI_READ == NULL)
+    {
+        return 0;
+    }
 
     enterCriticalSection();
 
@@ -369,35 +416,37 @@ SINT32 ADDVARIABLE(CHAR *strModule, CHAR *strVariable, SINT32 pData, UINT32 u32S
         if (InitVariable(strModule, strVariable, pData, sTemp) == FALSE)
         {
             lst_RemTail(LST_SVI_READ);
-        }
-        else
-        {
-            s32Return = 0;
+
+            sTemp = 0;
         }
     }
 
     leaveCriticalSection();
 
-    return s32Return;
+    return (SINT32)sTemp;
 }
 
 /**
  ********************************************************************************
- * @brief Function that demonstrates how to create a function, that can be called
- * from M-PLC. Input is returned as output.
+ * @brief This function adds a variable into WRITE-list
  *
  * @param[in]  strModule     name of module
  * @param[in]  strVariable   name of variable
  * @param[in]  pData         pointer to variable
+ * @param[in]  u32Size       size of variable
  *
- * @retval     0
+ * @retval     handle to variable
  *
  * @note       Functions that can be called from M-PLC must be capitalized.
 *******************************************************************************/
 SINT32 ADDVARIABLEWRITE(CHAR *strModule, CHAR *strVariable, SINT32 pData, UINT32 u32Size)
 {
     struct plc_Variable *sTemp = 0;
-    SINT32 s32Return = -1;
+
+    if (LST_SVI_WRITE == NULL)
+    {
+        return 0;
+    }
 
     enterCriticalSection();
 
@@ -411,29 +460,25 @@ SINT32 ADDVARIABLEWRITE(CHAR *strModule, CHAR *strVariable, SINT32 pData, UINT32
         if (InitVariable(strModule, strVariable, pData, sTemp) == FALSE)
         {
             lst_RemTail(LST_SVI_WRITE);
+            sTemp = 0;
         }
-        else
-        {
-            s32Return = 0;
-        }
-
     }
 
     leaveCriticalSection();
 
-    return s32Return;
+    return (SINT32)sTemp;
 }
 
 /**
  ********************************************************************************
- * @brief Function that demonstrates how to create a function, that can be called
- * from M-PLC. Input is returned as output.
+ * @brief This function initializes a the svi-data
  *
  * @param[in]  strModule     name of module
  * @param[in]  strVariable   name of variable
  * @param[in]  pData         pointer to variable
+ * @param[in]  pTemp         node of list
  *
- * @retval     0
+ * @retval     TRUE = init sucessfull, FALSE = init failed
  *
  * @note       Functions that can be called from M-PLC must be capitalized.
 *******************************************************************************/
@@ -508,11 +553,60 @@ BOOL InitVariable(CHAR *strModule, CHAR *strVariable, SINT32 pData, plc_Variable
     return TRUE;
 }
 
+/**
+ ********************************************************************************
+ * @brief This Function removes a variable from the list
+ *
+ * @param[in]  s32Variable      parameter
+ *
+ * @retval     TRUE = ok, FALSE = failed
+ *
+ * @note       Functions that can be called from M-PLC must be capitalized.
+*******************************************************************************/
+BOOL8 REMOVEVARIABLE(SINT32 s32Variable)
+{
+
+    BOOL8 bReturn = FALSE;
+
+    enterCriticalSection();
+
+    if (s32Variable != 0)
+    {
+        lst_RemNode((void*)s32Variable);
+
+        bReturn = TRUE;
+    }
+
+    leaveCriticalSection();
+
+    return bReturn;
+}
 
 /**
  ********************************************************************************
- * @brief Function that demonstrates how to create a function, that can be called
- * from M-PLC. Input is returned as output.
+ * @brief This Function checks if handle contains valid data
+ *
+ * @param[in]  s32Variable      parameter
+ *
+ * @retval     TRUE = ok, FALSE = failed
+ *
+ * @note       Functions that can be called from M-PLC must be capitalized.
+*******************************************************************************/
+BOOL8 ISVALID(SINT32 s32Variable)
+{
+    plc_Variable *sTemp = (plc_Variable*)s32Variable;
+
+    if (sTemp != NULL)
+    {
+        return sTemp->bValid;
+    }
+
+    return FALSE;
+}
+
+/**
+ ********************************************************************************
+ * @brief Set tasktime of update task
  *
  * @param[in]  u32Time      parameter
  *
@@ -523,12 +617,14 @@ BOOL InitVariable(CHAR *strModule, CHAR *strVariable, SINT32 pData, plc_Variable
 SINT32 SETTASKTIME(UINT32 u32Time)
 {
 
-    if (u32Time > 1000)
+    if (u32Time > 1000 || u32Time == 0)
     {
         return -1;
     }
 
     u32TaskDelay = (sysClkRateGet() * u32Time) / 1000;
+
+    u32TaskDelay = u32TaskDelay != 0 ? u32TaskDelay : 1;
 
     return 0;
 }
@@ -536,6 +632,10 @@ SINT32 SETTASKTIME(UINT32 u32Time)
 /* ----------------------------------------------------------------- */
 void enterCriticalSection()
 {
+    if (m_Semaphore == NULL)
+    {
+        return;
+    }
     // test immediate availability of semaphore (like it should be most of the time)
     if (semTake(m_Semaphore, NO_WAIT) == ERROR)
     {
@@ -546,6 +646,11 @@ void enterCriticalSection()
 /* ----------------------------------------------------------------- */
 void leaveCriticalSection()
 {
+    if (m_Semaphore == NULL)
+    {
+        return;
+    }
+
     if (semGive(m_Semaphore) == ERROR)
     {
         test_Err("leaveCriticalSection: semaphore not valid or not owned by me");
